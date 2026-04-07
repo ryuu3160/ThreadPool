@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="ThreadPool/ThreadPool.vcxproj" Id="f798a4f8-b4ab-41fd-ba48-24a98873ea06" />
+</Solution>
