@@ -49,13 +49,13 @@ int ThreadPool::GetCurrentThreadIndex() const
     return t_WorkerIndex;
 }
 
-void ThreadPool::Shutdown(ShutdownMode mode)
+void ThreadPool::Shutdown(_In_ ShutdownMode In_Mode)
 {
     // 受付停止(再帰AddTaskを止める)
     m_AcceptTasks.store(false, std::memory_order_release);
 
     // Drainならpending==0を待つ(受付停止済みなので増えない)
-    if(mode == ShutdownMode::Drain)
+    if(In_Mode == ShutdownMode::Drain)
         WaitUntilIdle();
 
     // Termination & Wakeup
@@ -82,16 +82,16 @@ void ThreadPool::WaitUntilIdle()
         });
 }
 
-std::function<void()> ThreadPool::TaskStealOrPull(int inIndex)
+std::function<void()> ThreadPool::TaskStealOrPull(_In_ int In_Index)
 {
     // 他ワーカーからSteal
     const int count = static_cast<int>(m_Workers.size());
     for(int i = 0; i < count; ++i)
     {
-        if(i == inIndex)
+        if(i == In_Index)
             continue;
 
-        auto task = m_Workers[static_cast<std::size_t>(i)]->Steal();
+        auto task = m_Workers[i]->Steal();
         if(task)
             return task;
     }
@@ -106,11 +106,11 @@ std::function<void()> ThreadPool::TaskStealOrPull(int inIndex)
     return task;
 }
 
-void ThreadPool::WakeupAll(int inIndex)
+void ThreadPool::WakeupAll(_In_ int In_Index)
 {
-    for(std::size_t i = 0; i < m_Workers.size(); ++i)
+    for(int i = 0; i < static_cast<int>(m_Workers.size()); ++i)
     {
-        if(static_cast<int>(i) == inIndex)
+        if(i == In_Index)
             continue;
         m_Workers[i]->Wakeup();
     }
@@ -129,9 +129,9 @@ void ThreadPool::OnTaskFinished()
 // Worker
 // ==============================
 
-ThreadPool::Worker::Worker(ThreadPool &pool, int index)
-    : m_Pool(pool)
-    , m_Index(index)
+ThreadPool::Worker::Worker(_In_ ThreadPool &In_Pool, _In_ int In_Index)
+    : m_Pool(In_Pool)
+    , m_Index(In_Index)
     , m_Thread([this]() { WorkerProc(); })
 {}
 
@@ -188,7 +188,7 @@ void ThreadPool::Worker::WorkerProc()
             std::unique_lock<std::mutex> lock(m_LocalMutex);
             if(!m_LocalTasks.empty())
             {
-                if((++m_PopCounter & 0x7) == 0)
+                if((m_PopCounter & 0x7) == 0)
                 {
                     task = std::move(m_LocalTasks.front());
                     m_LocalTasks.pop_front();
@@ -198,24 +198,26 @@ void ThreadPool::Worker::WorkerProc()
                     task = std::move(m_LocalTasks.back());
                     m_LocalTasks.pop_back();
                 }
+                ++m_PopCounter;
             }
         }
 
         // 無ければSteal/Pull
         if(!task)
-        {
             task = m_Pool.TaskStealOrPull(m_Index);
-        }
 
         // それでも無ければ待つ
         if(!task)
         {
+            std::uint64_t seen = m_Pool.m_GlobalWakeSeq.load(std::memory_order_acquire);
+
             std::unique_lock<std::mutex> lock(m_LocalMutex);
             m_LocalCond.wait(lock, [&]()
                 {
                     return m_IsRequestedTermination.load(std::memory_order_acquire)
                         || m_Pool.m_IsRequestedTermination.load(std::memory_order_acquire)
-                        || !m_LocalTasks.empty();
+                        || !m_LocalTasks.empty()
+                        || m_Pool.m_GlobalWakeSeq.load(std::memory_order_acquire) != seen;
                 });
             continue;
         }
@@ -226,4 +228,21 @@ void ThreadPool::Worker::WorkerProc()
 
     // TLSを外部扱いに戻す
     t_WorkerIndex = -1;
+}
+
+// ==============================
+// TaskHandle
+// ==============================
+
+bool ThreadPool::TaskHandle::IsDone() const
+{
+    return m_State && m_State->done.load(std::memory_order_acquire);
+}
+
+void ThreadPool::TaskHandle::Wait() const
+{
+    if(!m_State)
+        return;
+    std::unique_lock<std::mutex> lock(m_State->mtx);
+    m_State->cv.wait(lock, [&]() { return m_State->done.load(std::memory_order_acquire); });
 }
