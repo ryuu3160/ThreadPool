@@ -16,6 +16,15 @@ void LongTask()
     std::cout << "long task end\n";
 }
 
+class MyClass
+{
+public:
+    void ClassTask()
+    {
+        std::cout << "class task\n";
+    }
+};
+
 
 int main()
 {
@@ -23,6 +32,9 @@ int main()
 	_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
 
     ThreadPool &pool = ThreadPool::GetInstance();
+    MyClass obj;
+	
+    pool.AddTask(&MyClass::ClassTask,&obj); // メンバ関数もOK
 
     pool.AddTask([&pool]
         {
