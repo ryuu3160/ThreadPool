@@ -34,19 +34,19 @@ int main()
     ThreadPool &pool = ThreadPool::GetInstance();
     MyClass obj;
 	
-    pool.AddTask(&MyClass::ClassTask,&obj); // メンバ関数もOK
+    pool.AppendTask(&MyClass::ClassTask,&obj); // メンバ関数もOK
 
-    pool.AddTask([&pool]
+    pool.AppendTask([&pool]
         {
             std::cout << "parent\n";
 
-            // 再帰AddTask（Shutdown前なら通る）
-            auto ok = pool.AddTask([] { std::cout << "child\n"; });
+            // 再帰AppendTask（Shutdown前なら通る）
+            auto ok = pool.AppendTask([] { std::cout << "child\n"; });
             if(!ok)
-                std::cout << "AddTask rejected (shutting down)\n";
+                std::cout << "AppendTask rejected (shutting down)\n";
         });
-	pool.AddTask([] { std::cout << "another task\n"; });
-    auto h = pool.AddTask(LongTask);
+	pool.AppendTask([] { std::cout << "another task\n"; });
+    auto h = pool.AppendTask(LongTask);
 
     if(h)
     {
@@ -59,12 +59,12 @@ int main()
 
 		std::cout << "task done" << std::endl;
     }
-	pool.AddTask(SuperLongTask);
+	pool.AppendTask(SuperLongTask);
 
     // 受付停止→全タスク完了待ち→終了
     pool.Shutdown(ThreadPool::ShutdownMode::Drain);
 
-	pool.AddTask([] { std::cout << "task after shutdown\n"; }); // 受付停止後は拒否される
+	pool.AppendTask([] { std::cout << "task after shutdown\n"; }); // 受付停止後は拒否される
 
     SingletonController::Release();
     return 0;
